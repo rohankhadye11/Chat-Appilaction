@@ -1,0 +1,14 @@
+{
+  "name": "chat-service",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@app/common": "*",
+    "dotenv": "^16.4.5",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.7.0",
+    "@types/ws": "^8.18.1"
+  }
+}

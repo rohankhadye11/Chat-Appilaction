@@ -1,0 +1,161 @@
+<!doctype html>
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <title>Chat MVP Tester</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      margin: 20px;
+    }
+
+    input,
+    button {
+      margin: 4px;
+    }
+
+    pre {
+      background: #111;
+      color: #0f0;
+      padding: 8px;
+      height: 160px;
+      overflow: auto;
+    }
+  </style>
+</head>
+
+<body>
+  <h3>Auth</h3>
+  <input id="email" placeholder="email" value="a@a.com" />
+  <input id="password" placeholder="password" value="secret12" />
+  <input id="name" placeholder="displayName" value="Alice" />
+  <button id="register">Register</button>
+  <button id="login">Login</button>
+  <div>Token: <span id="token" style="word-break: break-all;"></span></div>
+
+  <h3>Messaging</h3>
+  <input id="chatId" placeholder="chatId" value="global" />
+  <input id="text" placeholder="text" value="hello world" />
+  <button id="send">Send</button>
+  <button id="history">History</button>
+
+  <h3>WebSocket</h3>
+  <button id="connect">Connect WS</button>
+  <div>WS: <span id="wsStatus">disconnected</span></div>
+
+  <h3>Log</h3>
+  <pre id="log"></pre>
+
+  <script>
+    const api = (path) => `http://localhost:3001${path}`;        // auth
+    const sendApi = (path) => `http://localhost:3002${path}`;     // ingestion
+    const historyApi = (path) => `http://localhost:3003${path}`;  // history
+    const wsUrl = (token) => `ws://localhost:4000/ws?token=${encodeURIComponent(token)}`;
+
+    const logEl = document.getElementById('log');
+    const tokenEl = document.getElementById('token');
+    const wsStatus = document.getElementById('wsStatus');
+    let TOKEN = '';
+
+    function log(...args) {
+      const line = args.map(a => typeof a === 'string' ? a : JSON.stringify(a, null, 2)).join(' ');
+      logEl.textContent += line + '\n';
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    async function postJSON(url, body, auth = false) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (auth && TOKEN) headers['Authorization'] = `Bearer ${TOKEN}`;
+      const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+      const text = await res.text();
+      try { return JSON.parse(text); } catch { return { status: res.status, text }; }
+    }
+
+    async function getJSON(url, auth = false) {
+      const headers = {};
+      if (auth && TOKEN) headers['Authorization'] = `Bearer ${TOKEN}`;
+      const res = await fetch(url, { headers });
+      const text = await res.text();
+      try { return JSON.parse(text); } catch { return { status: res.status, text }; }
+    }
+
+    document.getElementById('register').onclick = async () => {
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      const displayName = document.getElementById('name').value;
+      const data = await postJSON(api('/auth/register'), { email, password, displayName });
+      log('register:', data);
+    };
+
+    document.getElementById('login').onclick = async () => {
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      const data = await postJSON(api('/auth/login'), { email, password });
+      log('login:', data);
+      if (data?.token) {
+        TOKEN = data.token;
+        tokenEl.textContent = TOKEN;
+      }
+    };
+
+    document.getElementById('send').onclick = async () => {
+      const chatId = document.getElementById('chatId').value;
+      const text = document.getElementById('text').value;
+      const data = await postJSON(sendApi('/messages/send'), { chatId, text }, true);
+      log('send:', data);
+    };
+
+    document.getElementById('history').onclick = async () => {
+      const chatId = document.getElementById('chatId').value;
+      const data = await getJSON(historyApi(`/history/${encodeURIComponent(chatId)}?limit=50`));
+      log('history:', data);
+    };
+
+    let ws;
+    document.getElementById('connect').onclick = () => {
+      if (!TOKEN) return log('Please login first to get a token.');
+      if (ws) { try { ws.close(); } catch { } }
+      ws = new WebSocket(wsUrl(TOKEN));
+      ws.onopen = () => { wsStatus.textContent = 'connected'; log('ws open'); };
+      ws.onmessage = (e) => log('ws msg:', e.data);
+      ws.onclose = (e) => { wsStatus.textContent = 'closed'; log('ws close', e.code, e.reason); };
+      ws.onerror = (e) => log('ws error', e.message || e);
+    };
+  </script>
+  <script>
+    // Track last sequence per chatId
+    const lastSeq = new Map(); // chatId -> number
+
+    // When receiving WS message:
+    ws.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      const chatId = data.chatId;
+      const seq = data.sequence_number;
+      const prev = lastSeq.get(chatId) || 0;
+      if (seq !== prev + 1 && prev !== 0) {
+        log(`gap detected for ${chatId}: have ${prev}, got ${seq}, fetching missing...`);
+        // Fetch missing range optimistically
+        fetch(`http://localhost:3003/history/${encodeURIComponent(chatId)}?from=${prev + 1}&to=${seq - 1}`)
+          .then(r => r.json()).then(missing => {
+            log('reconciled:', missing.length, 'messages');
+            // render missing first, then the new message
+          }).catch(err => log('reconcile error', err));
+      }
+      lastSeq.set(chatId, seq);
+      log('ws msg:', data);
+    };
+
+    // Update History button to optional range parameters
+    document.getElementById('history').onclick = async () => {
+      const chatId = document.getElementById('chatId').value;
+      const data = await getJSON(`http://localhost:3003/history/${encodeURIComponent(chatId)}?limit=50`);
+      const maxSeq = data.reduce((m, d) => Math.max(m, d.sequence_number || 0), 0);
+      if (maxSeq) lastSeq.set(chatId, maxSeq);
+      log('history:', data);
+    };
+  </script>
+
+</body>
+
+</html>

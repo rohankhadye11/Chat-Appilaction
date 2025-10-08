@@ -1,0 +1,29 @@
+{
+  "name": "distributed-chat-mvp",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "type": "module",
+  "scripts": {
+    "dev:user": "tsx packages/user-service/src/index.ts",
+    "dev:ingest": "tsx packages/ingestion-service/src/index.ts",
+    "dev:enrich": "tsx packages/enrichment-worker/src/index.ts",
+    "dev:history": "tsx packages/history-service/src/index.ts",
+    "dev:chat": "tsx packages/chat-service/src/index.ts",
+    "dev:client": "npx serve -l 5173 packages/web-client/public",
+    "dev:all": "npm-run-all -p dev:user dev:ingest dev:enrich dev:history dev:chat",
+    "lint": "eslint .",
+    "build": "tsc",
+    "build:clean": "rimraf dist && tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc -w"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "eslint": "^9.11.1",
+    "npm-run-all": "^4.1.5",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.3"
+  }
+}

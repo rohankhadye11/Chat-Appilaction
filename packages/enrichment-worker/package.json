@@ -1,0 +1,9 @@
+{
+  "name": "enrichment-worker",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@app/common": "*",
+    "dotenv": "^16.4.5"
+  }
+}
